@@ -69,11 +69,19 @@ export interface CheckersStoredGame {
 
   /** @format uint64 */
   moveCount?: string;
+  beforeIndex?: string;
+  afterIndex?: string;
 }
 
 export interface CheckersSystemInfo {
   /** @format uint64 */
   nextId?: string;
+
+  /** Will contain the index of the game at the head. */
+  fifoHeadIndex?: string;
+
+  /** Will contain the index of the game at the tail. */
+  fifoTailIndex?: string;
 }
 
 export interface ProtobufAny {
