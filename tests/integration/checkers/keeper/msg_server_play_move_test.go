@@ -14,7 +14,45 @@ func (suite *IntegrationTestSuite) setupSuiteWithOneGameForPlayMove() {
 		Black:   bob,
 		Red:     carol,
 		Wager:   45,
+		Denom:   "stake",
 	})
+}
+
+func (suite *IntegrationTestSuite) TestPlayMoveSavedGame() {
+	suite.setupSuiteWithOneGameForPlayMove()
+	goCtx := sdk.WrapSDKContext(suite.ctx)
+	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   bob,
+		GameIndex: "1",
+		FromX:     1,
+		FromY:     2,
+		ToX:       2,
+		ToY:       3,
+	})
+	keeper := suite.app.CheckersKeeper
+	systemInfo, found := keeper.GetSystemInfo(suite.ctx)
+	suite.Require().True(found)
+	suite.Require().EqualValues(types.SystemInfo{
+		NextId:        2,
+		FifoHeadIndex: "1",
+		FifoTailIndex: "1",
+	}, systemInfo)
+	game1, found := keeper.GetStoredGame(suite.ctx, "1")
+	suite.Require().True(found)
+	suite.Require().EqualValues(types.StoredGame{
+		Index:       "1",
+		Board:       "*b*b*b*b|b*b*b*b*|***b*b*b|**b*****|********|r*r*r*r*|*r*r*r*r|r*r*r*r*",
+		Turn:        "r",
+		Black:       bob,
+		Red:         carol,
+		MoveCount:   uint64(1),
+		BeforeIndex: "-1",
+		AfterIndex:  "-1",
+		Deadline:    types.FormatDeadline(suite.ctx.BlockTime().Add(types.MaxTurnDuration)),
+		Winner:      "*",
+		Wager:       45,
+		Denom:       "stake",
+	}, game1)
 }
 
 func (suite *IntegrationTestSuite) TestPlayMovePlayerPaid() {
@@ -37,111 +75,59 @@ func (suite *IntegrationTestSuite) TestPlayMovePlayerPaid() {
 	suite.RequireBankBalance(balCarol, carol)
 	suite.RequireBankBalance(45, checkersModuleAddress)
 }
-func (suite *IntegrationTestSuite) TestPlayMove2PlayerPaid() {
-	suite.setupSuiteWithOneGameForPlayMove()
-	goCtx := sdk.WrapSDKContext(suite.ctx)
-	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   bob,
-		GameIndex: "1",
-		FromX:     1,
-		FromY:     2,
-		ToX:       2,
-		ToY:       3,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob-45, bob)
-	suite.RequireBankBalance(balCarol, carol)
-	suite.RequireBankBalance(45, checkersModuleAddress)
-	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   carol,
-		GameIndex: "1",
-		FromX:     0,
-		FromY:     5,
-		ToX:       1,
-		ToY:       4,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob-45, bob)
-	suite.RequireBankBalance(balCarol-45, carol)
-	suite.RequireBankBalance(90, checkersModuleAddress)
-}
 
-func (suite *IntegrationTestSuite) TestPlayMove2CannotPayFails() {
-	suite.setupSuiteWithOneGameForPlayMove()
+func (suite *IntegrationTestSuite) TestPlayMovePlayerPaidEvenZero() {
+	suite.setupSuiteWithBalances()
 	goCtx := sdk.WrapSDKContext(suite.ctx)
 	suite.msgServer.CreateGame(goCtx, &types.MsgCreateGame{
-		Creator: alice,
-		Black:   bob,
-		Red:     carol,
-		Wager:   balCarol + 1,
+		Creator: bob,
+		Black:   carol,
+		Red:     alice,
+		Wager:   0,
+		Denom:   "stake",
 	})
 	suite.RequireBankBalance(balAlice, alice)
 	suite.RequireBankBalance(balBob, bob)
 	suite.RequireBankBalance(balCarol, carol)
 	suite.RequireBankBalance(0, checkersModuleAddress)
 	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   bob,
-		GameIndex: "2",
+		Creator:   carol,
+		GameIndex: "1",
 		FromX:     1,
 		FromY:     2,
 		ToX:       2,
 		ToY:       3,
 	})
-	playMoveResponse, err := suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   carol,
-		GameIndex: "2",
-		FromX:     0,
-		FromY:     5,
-		ToX:       1,
-		ToY:       4,
-	})
-	suite.Require().Nil(playMoveResponse)
-	suite.Require().Equal("red cannot pay the wager: 10000000stake is smaller than 10000001stake: insufficient funds", err.Error())
-}
-func (suite *IntegrationTestSuite) TestPlayMoveToWinnerBankPaid() {
-	suite.setupSuiteWithOneGameForPlayMove()
-	testutil.PlayAllMoves(suite.T(), suite.msgServer, sdk.WrapSDKContext(suite.ctx), "1", bob, carol, testutil.Game1Moves)
 	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob+45, bob)
-	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalance(balBob, bob)
+	suite.RequireBankBalance(balCarol, carol)
 	suite.RequireBankBalance(0, checkersModuleAddress)
 }
 
-func (suite *IntegrationTestSuite) TestPlayMove3DidNotPay() {
+func (suite *IntegrationTestSuite) TestPlayMoveCannotPayFails() {
 	suite.setupSuiteWithOneGameForPlayMove()
 	goCtx := sdk.WrapSDKContext(suite.ctx)
-	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   bob,
-		GameIndex: "1",
+	suite.msgServer.CreateGame(goCtx, &types.MsgCreateGame{
+		Creator: bob,
+		Black:   carol,
+		Red:     alice,
+		Wager:   balCarol + 1,
+		Denom:   "stake",
+	})
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob, bob)
+	suite.RequireBankBalance(balCarol, carol)
+	suite.RequireBankBalance(0, checkersModuleAddress)
+	playMoveResponse, err := suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   carol,
+		GameIndex: "2",
 		FromX:     1,
 		FromY:     2,
 		ToX:       2,
 		ToY:       3,
 	})
-	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   carol,
-		GameIndex: "1",
-		FromX:     0,
-		FromY:     5,
-		ToX:       1,
-		ToY:       4,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob-45, bob)
-	suite.RequireBankBalance(balCarol-45, carol)
-	suite.RequireBankBalance(90, checkersModuleAddress)
-	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   bob,
-		GameIndex: "1",
-		FromX:     2,
-		FromY:     3,
-		ToX:       0,
-		ToY:       5,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob-45, bob)
-	suite.RequireBankBalance(balCarol-45, carol)
-	suite.RequireBankBalance(90, checkersModuleAddress)
+	suite.Require().Nil(playMoveResponse)
+	suite.Require().Equal("black cannot pay the wager: 10000000stake is smaller than 10000001stake: insufficient funds", err.Error())
 }
 
 func (suite *IntegrationTestSuite) TestPlayMoveEmitted() {
@@ -189,6 +175,7 @@ func (suite *IntegrationTestSuite) TestPlayMoveEmittedEvenZero() {
 		Black:   carol,
 		Red:     alice,
 		Wager:   0,
+		Denom:   "stake",
 	})
 	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
 		Creator:   carol,
@@ -224,7 +211,7 @@ func (suite *IntegrationTestSuite) TestPlayMoveEmittedEvenZero() {
 	}, transferEvent.Attributes)
 }
 
-func (suite *IntegrationTestSuite) TestPlayMoveSavedGame() {
+func (suite *IntegrationTestSuite) TestPlayMove2PlayerPaid() {
 	suite.setupSuiteWithOneGameForPlayMove()
 	goCtx := sdk.WrapSDKContext(suite.ctx)
 	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
@@ -235,79 +222,129 @@ func (suite *IntegrationTestSuite) TestPlayMoveSavedGame() {
 		ToX:       2,
 		ToY:       3,
 	})
-	keeper := suite.app.CheckersKeeper
-	systemInfo, found := keeper.GetSystemInfo(suite.ctx)
-	suite.Require().True(found)
-	suite.Require().EqualValues(types.SystemInfo{
-		NextId:        2,
-		FifoHeadIndex: "1",
-		FifoTailIndex: "1",
-	}, systemInfo)
-	game1, found := keeper.GetStoredGame(suite.ctx, "1")
-	suite.Require().True(found)
-	suite.Require().EqualValues(types.StoredGame{
-		Index:       "1",
-		Board:       "*b*b*b*b|b*b*b*b*|***b*b*b|**b*****|********|r*r*r*r*|*r*r*r*r|r*r*r*r*",
-		Turn:        "r",
-		Black:       bob,
-		Red:         carol,
-		MoveCount:   uint64(1),
-		BeforeIndex: "-1",
-		AfterIndex:  "-1",
-		Deadline:    types.FormatDeadline(suite.ctx.BlockTime().Add(types.MaxTurnDuration)),
-		Winner:      "*",
-		Wager:       45,
-	}, game1)
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob-45, bob)
+	suite.RequireBankBalance(balCarol, carol)
+	suite.RequireBankBalance(45, checkersModuleAddress)
+	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   carol,
+		GameIndex: "1",
+		FromX:     0,
+		FromY:     5,
+		ToX:       1,
+		ToY:       4,
+	})
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob-45, bob)
+	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalance(90, checkersModuleAddress)
 }
 
-func (suite *IntegrationTestSuite) TestPlayMovePlayerPaidEvenZero() {
-	suite.setupSuiteWithBalances()
+func (suite *IntegrationTestSuite) TestPlayMove2CannotPayFails() {
+	suite.setupSuiteWithOneGameForPlayMove()
 	goCtx := sdk.WrapSDKContext(suite.ctx)
 	suite.msgServer.CreateGame(goCtx, &types.MsgCreateGame{
-		Creator: bob,
-		Black:   carol,
-		Red:     alice,
-		Wager:   0,
+		Creator: alice,
+		Black:   bob,
+		Red:     carol,
+		Wager:   balCarol + 1,
+		Denom:   "stake",
 	})
 	suite.RequireBankBalance(balAlice, alice)
 	suite.RequireBankBalance(balBob, bob)
 	suite.RequireBankBalance(balCarol, carol)
 	suite.RequireBankBalance(0, checkersModuleAddress)
 	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   carol,
-		GameIndex: "1",
-		FromX:     1,
-		FromY:     2,
-		ToX:       2,
-		ToY:       3,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob, bob)
-	suite.RequireBankBalance(balCarol, carol)
-	suite.RequireBankBalance(0, checkersModuleAddress)
-}
-
-func (suite *IntegrationTestSuite) TestPlayMoveCannotPayFails() {
-	suite.setupSuiteWithOneGameForPlayMove()
-	goCtx := sdk.WrapSDKContext(suite.ctx)
-	suite.msgServer.CreateGame(goCtx, &types.MsgCreateGame{
-		Creator: bob,
-		Black:   carol,
-		Red:     alice,
-		Wager:   balCarol + 1,
-	})
-	suite.RequireBankBalance(balAlice, alice)
-	suite.RequireBankBalance(balBob, bob)
-	suite.RequireBankBalance(balCarol, carol)
-	suite.RequireBankBalance(0, checkersModuleAddress)
-	playMoveResponse, err := suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
-		Creator:   carol,
+		Creator:   bob,
 		GameIndex: "2",
 		FromX:     1,
 		FromY:     2,
 		ToX:       2,
 		ToY:       3,
 	})
+	playMoveResponse, err := suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   carol,
+		GameIndex: "2",
+		FromX:     0,
+		FromY:     5,
+		ToX:       1,
+		ToY:       4,
+	})
 	suite.Require().Nil(playMoveResponse)
-	suite.Require().Equal("black cannot pay the wager: 10000000stake is smaller than 10000001stake: insufficient funds", err.Error())
+	suite.Require().Equal("red cannot pay the wager: 10000000stake is smaller than 10000001stake: insufficient funds", err.Error())
+}
+
+func (suite *IntegrationTestSuite) TestPlayMove3DidNotPay() {
+	suite.setupSuiteWithOneGameForPlayMove()
+	goCtx := sdk.WrapSDKContext(suite.ctx)
+	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   bob,
+		GameIndex: "1",
+		FromX:     1,
+		FromY:     2,
+		ToX:       2,
+		ToY:       3,
+	})
+	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   carol,
+		GameIndex: "1",
+		FromX:     0,
+		FromY:     5,
+		ToX:       1,
+		ToY:       4,
+	})
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob-45, bob)
+	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalance(90, checkersModuleAddress)
+	suite.msgServer.PlayMove(goCtx, &types.MsgPlayMove{
+		Creator:   bob,
+		GameIndex: "1",
+		FromX:     2,
+		FromY:     3,
+		ToX:       0,
+		ToY:       5,
+	})
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob-45, bob)
+	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalance(90, checkersModuleAddress)
+}
+
+func (suite *IntegrationTestSuite) TestPlayMoveToWinnerBankPaid() {
+	suite.setupSuiteWithOneGameForPlayMove()
+	testutil.PlayAllMoves(suite.T(), suite.msgServer, sdk.WrapSDKContext(suite.ctx), "1", bob, carol, testutil.Game1Moves)
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalance(balBob+45, bob)
+	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalance(0, checkersModuleAddress)
+}
+
+func (suite *IntegrationTestSuite) TestPlayMoveToWinnerBankPaidDifferentTokens() {
+	suite.setupSuiteWithOneGameForPlayMove()
+	goCtx := sdk.WrapSDKContext(suite.ctx)
+	suite.msgServer.CreateGame(goCtx, &types.MsgCreateGame{
+		Creator: alice,
+		Black:   bob,
+		Red:     carol,
+		Wager:   46,
+		Denom:   "coin",
+	})
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalanceWithDenom(0, "coin", alice)
+	suite.RequireBankBalance(balBob, bob)
+	suite.RequireBankBalanceWithDenom(balBob, "coin", bob)
+	suite.RequireBankBalance(balCarol, carol)
+	suite.RequireBankBalanceWithDenom(balCarol, "coin", carol)
+	suite.RequireBankBalance(0, checkersModuleAddress)
+	testutil.PlayAllMoves(suite.T(), suite.msgServer, sdk.WrapSDKContext(suite.ctx), "1", bob, carol, testutil.Game1Moves)
+	testutil.PlayAllMoves(suite.T(), suite.msgServer, sdk.WrapSDKContext(suite.ctx), "2", bob, carol, testutil.Game1Moves)
+	suite.RequireBankBalance(balAlice, alice)
+	suite.RequireBankBalanceWithDenom(0, "coin", alice)
+	suite.RequireBankBalance(balBob+45, bob)
+	suite.RequireBankBalanceWithDenom(balBob+46, "coin", bob)
+	suite.RequireBankBalance(balCarol-45, carol)
+	suite.RequireBankBalanceWithDenom(balCarol-46, "coin", carol)
+	suite.RequireBankBalance(0, checkersModuleAddress)
+	suite.RequireBankBalanceWithDenom(0, "coin", checkersModuleAddress)
 }

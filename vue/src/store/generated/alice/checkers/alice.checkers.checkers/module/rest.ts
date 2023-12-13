@@ -79,6 +79,7 @@ export interface CheckersStoredGame {
 
   /** @format uint64 */
   wager?: string;
+  deneom?: string;
 }
 
 export interface CheckersSystemInfo {
